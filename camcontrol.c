@@ -145,7 +145,6 @@ get_hdd_info(HDD *HardDrives[])
 					 HardDrives[device_count-1]->target=dev_result->target_id;   
 					 HardDrives[device_count-1]->lun=dev_result->target_lun;   
 				    };
-
 				} else if (dev_result->protocol == PROTO_ATA ||
 				    dev_result->protocol == PROTO_SATAPM) {
 				    cam_strvis((u_int8_t *)product,
@@ -171,6 +170,7 @@ get_hdd_info(HDD *HardDrives[])
 					 HardDrives[device_count-1]->target=dev_result->target_id;   
 					 HardDrives[device_count-1]->lun=dev_result->target_lun;   
 				    };
+#if __FreeBSD_version >= 900000
 				} else if (dev_result->protocol == PROTO_SEMB) {
 					struct sep_identify_data *sid;
 
@@ -204,6 +204,7 @@ get_hdd_info(HDD *HardDrives[])
 					 HardDrives[device_count-1]->target=dev_result->target_id;   
 					 HardDrives[device_count-1]->lun=dev_result->target_lun;   
 				    };
+#endif
 				}
 
 				need_close = 1;
@@ -244,6 +245,7 @@ get_hdd_info(HDD *HardDrives[])
 //	printf("\nDevices: %d\n", device_count);
 
 	close(fd);
+	free(ccb.cdm.matches);
 
 	return(device_count);
 }

@@ -52,7 +52,7 @@ typedef struct servent servent;
 typedef struct timespec timespec;
 
 static int do_write (void);
-static void do_read (register struct kevent const *const kep);
+static void do_read (void);
 static void ke_change (register int const ident, register int const filter, register int const flags, register void *const udata);
 void start_syshandle(void);
 static void client_free(register struct kevent  *kephttp);

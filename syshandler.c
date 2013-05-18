@@ -26,6 +26,11 @@
 #define AUTHPASSLEN 80
 
 int client_sock;
+Errors ErrCodes[] = {
+	{ 0, "Complete", 0, 0 },
+	{ 1, "Authorized failed", 0, 0},
+	{ 2, "Data not valid", 0, 0},
+};
 
 void
 get_system_info (void)
@@ -91,11 +96,17 @@ do_write (void)
   register int n, i;
   char *buffer;
   char *encbuffer;
+  unsigned int packet_size = 0;
 
-  char auth_user[AUTHUSERLEN];
-  char auth_pass[AUTHPASSLEN];
+  //char auth_user[AUTHUSERLEN];
+  char *auth_user;
+  //char auth_pass[AUTHPASSLEN];
+  char *auth_pass;
   unsigned char md5sum[MD5_DIGEST_LENGTH];
   get_system_info();
+
+  auth_user = malloc(AUTHUSERLEN);
+  auth_pass = malloc(AUTHPASSLEN);
 
   memset(auth_user, 0, AUTHUSERLEN);
   memset(auth_pass, 0, AUTHPASSLEN);
@@ -103,9 +114,10 @@ do_write (void)
   strcpy(auth_user, configVar[6].value);
   strcpy(auth_pass, configVar[7].value);
 
-  buffer = xmalloc(AUTHUSERLEN+AUTHPASSLEN+sizeof(SInfo)+sizeof(struct HDDInfo)*MAXHDDS, "BUFFER");
+  packet_size = AUTHUSERLEN+AUTHPASSLEN+sizeof(SInfo)+sizeof(struct HDDInfo)*MAXHDDS+4+sizeof(unsigned int);
+  buffer = malloc(packet_size);
   memset(buffer, 0, sizeof(buffer));
-  encbuffer = xmalloc(AUTHUSERLEN+AUTHPASSLEN+sizeof(SInfo)+sizeof(struct HDDInfo)*MAXHDDS, "BUFFER");
+  encbuffer = malloc(packet_size);
   memset(encbuffer, 0, sizeof(encbuffer));
 
   memcpy(buffer, auth_user, AUTHUSERLEN);
@@ -116,77 +128,51 @@ do_write (void)
     memcpy(buffer+AUTHUSERLEN+AUTHPASSLEN+sizeof(SInfo)+i*sizeof(struct HDDInfo), (char *)SInfo.HardDrives[i], sizeof(struct HDDInfo));
   };
   DPRINT_ARGS("BUFFER: %s", buffer);
+  DPRINT_ARGS("PACKET_SIZE: %ld", packet_size);
   //memset(md5sum, 0, MD5_DIGEST_LENGTH);
   get_MD5(md5sum, buffer, AUTHUSERLEN+AUTHPASSLEN+sizeof(SInfo)+sizeof(struct HDDInfo)*MAXHDDS);
-  encrypt_decrypt(encbuffer, buffer, AUTHUSERLEN+AUTHPASSLEN+sizeof(SInfo)+sizeof(struct HDDInfo)*MAXHDDS);
-  xfree(buffer);
+  memcpy(encbuffer, &packet_size, sizeof(unsigned int));
+  encrypt_decrypt(encbuffer + sizeof(unsigned int), buffer, AUTHUSERLEN+AUTHPASSLEN+sizeof(SInfo)+sizeof(struct HDDInfo)*MAXHDDS);
+  free(buffer);
 
-  n = write (client_sock, encbuffer, AUTHUSERLEN+AUTHPASSLEN+sizeof(SInfo)+sizeof(struct HDDInfo)*MAXHDDS);
+  n = write (client_sock, encbuffer, packet_size);
 
-  xfree(encbuffer);
+  free(encbuffer);
+  free(auth_user);
+  free(auth_pass);
 
   return n;
 
 }
 
 static void
-do_read (register struct kevent const *const kep)
+//do_read (register struct kevent const *const kep)
+do_read (void)
 {
   enum { bufsize = 1024 };
   auto char buf[bufsize], tempbuf[bufsize];
   register int n;
-  register int ret;
-  register ecb *const ecbp = (ecb *) kep->udata;
+  int ret;
+  //register ecb *const ecbp = (ecb *) kep->udata;
 
-/*  bzero(buf, bufsize);
-
-  if ((n = read (kep->ident, buf, bufsize)) == -1)
-    {
-      DPRINT_ARGS("Error reading socket: %s", strerror (errno));
-      close (kep->ident);
-      xfree (ecbp->client);
-      xfree (kep->udata);
-    }
-  else if (n == 0)
-    {
-      DPRINT_ARGS ("EOF reading socket for client %s", inet_ntoa(ecbp->client->ip));
-      close (kep->ident);
-      xfree (ecbp->client);
-      xfree (kep->udata);
-      client_end = 1;
-    }
-
-  ret=parse_incomming(buf, tempbuf, n, &ecbp->client->reqcount);
-  if(ret>0)
+  n = read (client_sock, &ret, sizeof(int));
+  switch(ret)
   {
-	  DPRINT_ARGS("Result parse: %d", ret);
-	  ecbp->buf = (char *) xmalloc (ret, "sys_in_ret");
-	  ecbp->bufsiz = ret;
-	  memcpy (ecbp->buf, tempbuf, ret);
+	  case 0: DPRINT("Connect complete!"); break;
+	  case 1: ERROR_ARGS("%s", ErrCodes[ret].value); break;
+	  case 2: ERROR_ARGS("%s", ErrCodes[ret].value); break;
+	  default: ERROR("Answer from server not valid"); break;  	  
   }
-  else if (ret == 0)
-  {
-	  ecbp->buf = (char *) xmalloc (n, "sys_buf_size");
-	  ecbp->bufsiz = n;
-	  memcpy (ecbp->buf, buf, n);
-  }
-  else if (ret == -1)
-  {
-      close (kep->ident);
-      xfree (ecbp->client);
-      xfree (kep->udata);
-      client_end = 1;
-  };
-
-  ke_change (kep->ident, EVFILT_READ, EV_DISABLE, kep->udata);
-  ke_change (kep->ident, EVFILT_WRITE, EV_ENABLE, kep->udata);*/
+//  ke_change (kep->ident, EVFILT_READ, EV_DISABLE, kep->udata);
+//  ke_change (kep->ident, EVFILT_WRITE, EV_ENABLE, kep->udata);
 }
 
 static void
 do_connect ()
 {
-	int result;
+  int result;
   struct sockaddr_in serv_addr;
+  client_sock = 0;
 
   serv_addr.sin_addr.s_addr = inet_addr(configVar[1].value);
   serv_addr.sin_family = AF_INET;
@@ -195,7 +181,7 @@ do_connect ()
   DPRINT("DO_CONNECT!");
   if ((client_sock = socket (PF_INET, SOCK_STREAM, 0)) == -1)
 	FATAL_ARGS("Error creating socket: %s", strerror (errno));
-  if ((result=connect(client_sock,&serv_addr,sizeof(serv_addr))) < 0) 
+  if ((result=connect(client_sock,&serv_addr,sizeof(struct sockaddr_in))) < 0) 
   {
 	  ERROR_ARGS("Error in connect(): %s", strerror (errno));
   };
@@ -238,7 +224,7 @@ event_loop (register int const kq)
 		}
 		else
 		{
-
+//			do_read();
 		};
 		DPRINT_ARGS("RESULT: %d", res);
         }
@@ -253,7 +239,7 @@ get_static_info(void)
   int num = 0, i;
 
   /* Get MotherBoard Info */
-  sysinfo = xmalloc(MAXBOARDINFO, "sysinfoBOARD");
+  sysinfo = malloc(MAXBOARDINFO);
   memset(sysinfo, 0, MAXBOARDINFO);
   dmidecode_main(sysinfo, 1, "baseboard-manufacturer");
   if (strlen(sysinfo)<1)
@@ -266,12 +252,12 @@ get_static_info(void)
   if (strlen(sysinfo)<1)
 	  dmidecode_main(sysinfo, 1, "system-product-name");
   strcat(SInfo.Board, sysinfo);
-  xfree(sysinfo);
+  free(sysinfo);
   DPRINT_ARGS("Motherboard: %s", SInfo.Board);
 
   /* Get CPU Info */
   memset(SInfo.CPU, 0, sizeof(SInfo.CPU));
-  sysinfo = xmalloc(MAXCPUINFO, "sysinfoCPU");
+  sysinfo = malloc(MAXCPUINFO);
   memset(sysinfo, 0, MAXCPUINFO);
   num = dmidecode_main(sysinfo, 0, "processor-version");
   memset(sysinfo, 0, MAXCPUINFO);
@@ -292,7 +278,7 @@ get_static_info(void)
     num = dmidecode_main(sysinfo, i, "processor-frequency");
     strcat(SInfo.CPU[num-1], sysinfo);
   };
-  xfree(sysinfo);
+  free(sysinfo);
   for (i = 0; i < SInfo.numCPU; i++)
   {
     DPRINT_ARGS("CPU Info: Count: %d Model: %s", SInfo.numCPU, SInfo.CPU[i]);
@@ -319,7 +305,7 @@ start_syshandle(void)
 
     for (i=0; i<MAXHDDS; i++)
     {
-	    SInfo.HardDrives[i] = xmalloc(sizeof(struct HDDInfo), "HDDInfo");
+	    SInfo.HardDrives[i] = malloc(sizeof(struct HDDInfo));
     };
   get_static_info();
   do_connect();

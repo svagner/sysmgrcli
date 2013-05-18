@@ -17,6 +17,15 @@
 #define MAXREVISIONINFO 20
 #define MAXHDDDEVICENAME 5
 
+typedef struct ErrCode {
+	int id;
+	char *value;
+	int stopper;
+	int timeout;
+} Errors;
+/* ErrorCode --> defined in syshandler.c */
+extern Errors ErrCodes[];
+
 typedef struct HDDInfo {
 	char vendor[MAXVENDORINFO];
 	char product[MAXPRODUCTINFO];
