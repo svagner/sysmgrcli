@@ -224,7 +224,7 @@ event_loop (register int const kq)
 		}
 		else
 		{
-//			do_read();
+			do_read();
 		};
 		DPRINT_ARGS("RESULT: %d", res);
         }
